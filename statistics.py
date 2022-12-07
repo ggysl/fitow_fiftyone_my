@@ -1,6 +1,7 @@
 from fiftyone import DatasetView, Dataset
 from fiftyone.utils.eval.coco import COCODetectionResults
 from fiftyone.core.session.session import Session
+from extends.yolov5_s_api import Metrics as YoloV5Metircs
 
 def _format_sep(sentence):
     n_total = 100
@@ -67,3 +68,14 @@ class Statistics():
         cm = eval_results.plot_confusion_matrix(classes=classes)
         cm.show()
         session.plots.attach(cm)
+
+    @statistics_api
+    def delete_eval_key(self, dataset: DatasetView, eval_key):
+        """
+        删除eval_key.
+        fiftyone官方api有, 放在这里更直观一点
+        """
+        if not isinstance(dataset, (DatasetView, Dataset)):
+            raise ValueError("需选择正确的dataset或view!")
+        else:
+            dataset.delete_evaluation(eval_key=eval_key)
