@@ -1,7 +1,9 @@
-from fiftyone import DatasetView, Dataset
+import numpy as np
+from fiftyone import ViewField as F
+from fiftyone import DatasetView, Dataset, Detections
 from fiftyone.utils.eval.coco import COCODetectionResults
 from fiftyone.core.session.session import Session
-from extends.yolov5_s_api import Metrics as YoloV5Metircs
+from .extends.yolov5_s_api import Metrics as YoloV5Metircs
 
 def _format_sep(sentence):
     n_total = 100
@@ -68,6 +70,42 @@ class Statistics():
         cm = eval_results.plot_confusion_matrix(classes=classes)
         cm.show()
         session.plots.attach(cm)
+
+    def _fo_to_numpy(self, targets: Detections, classes, mode=5, dtype=np.float32):
+        """
+        fiftyone Detections转成numpy数据接口.
+        mode: 5表示标签, 6表示预测
+        """
+        if mode not in (5, 6):
+            raise ValueError(f"mode只能是5, 6; 但是收到值{mode}")
+
+        if targets == None:
+            return np.zeros([0, mode], dtype=dtype)
+        else:
+            if mode == 6:
+                np_value =np.array(
+                    [[*d["bounding_box"], d["confidence"], classes[d["label"]]] for d in targets["detections"]],
+                    dtype=dtype)
+                np_value[:, 2:4] = np_value[:, 0:2] + np_value[:, 2:4]
+            elif mode == 5:
+                np_value =np.array(
+                    [[classes[d["label"]], *d["bounding_box"]] for d in targets["detections"]],
+                    dtype=dtype)
+                np_value[:, 3:5] = np_value[:, 1:3] + np_value[:, 3:5]
+            return np_value
+
+    @statistics_api
+    def yolov5_eval(self, dataset: DatasetView, eval_dir: str, gt_field="ground_truth", pred_field="predictions", classes: dict=None):
+        _samples = dataset.select_fields([gt_field, pred_field])
+        classes = {name:i for (i, name) in enumerate(_samples.distinct(F(f"{gt_field}.detections.label")))} \
+            if classes == None else classes
+
+        yolov5_metrics = YoloV5Metircs(save_dir=eval_dir, class_names={v:k for (k, v) in classes.items()}, n_classes=len(classes))
+        for sample in _samples.iter_samples(progress=True):
+            predn = self._fo_to_numpy(sample[pred_field], classes=classes, mode=6)
+            labeln = self._fo_to_numpy(sample[gt_field], classes=classes, mode=5)
+            yolov5_metrics.process_batch(predn, labeln)
+        yolov5_metrics.output()
 
     @statistics_api
     def delete_eval_key(self, dataset: DatasetView, eval_key):

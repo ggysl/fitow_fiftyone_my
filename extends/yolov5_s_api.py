@@ -4,7 +4,7 @@ import json
 import numpy as np
 from threading import Thread
 from functools import reduce
-from yolov5_metrics import ConfusionMatrix, ap_per_class, process_batch
+from .yolov5_metrics import ConfusionMatrix, ap_per_class, process_batch
 
 class ReadNumpyGroup():
     def __init__(self, save_dir, save_name="numpy_group", dtype=np.float32):
