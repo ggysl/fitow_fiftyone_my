@@ -367,13 +367,18 @@ class ConstructFlow(object):
             try:
                 print(f"发现classes为None, 正在从{field}抽取classes,")
                 print(f"warning: 不建议使用这种方式, 可能会和预想产生差异!")
-                classes = list(set(_samples.distinct(F(f"{field}.detections.label"))))
-            except:
-                print(f"从{field}中抽取classes失败, 请检查或手动赋值")
+                classes = list(set(_samples._dataset.select_fields([field]).distinct(F(f"{field}.detections.label"))))
+            except Exception as e:
+                print(f"从{field}中抽取classes失败: {e}, 请检查或手动赋值")
                 return
 
         # 都使用via模式, 其他模式再转换标签文件
         via_file = ViaFile.from_init(classes=classes)
+        try:
+            os.makedirs(save_dir, exist_ok=False)
+        except FileExistsError:
+            if input(f"{save_dir}已存在, 是否覆盖?(y/n): ") != "y":
+                return
         for sample in _samples.iter_samples(progress=True):
             filepath, img_size, img_w, img_h = sample["filepath"], sample.metadata["size_bytes"], sample.metadata["width"], sample.metadata["height"]
             if with_label:
@@ -410,7 +415,7 @@ class ConstructFlow(object):
             if m == "via":
                 via_file.save(os.path.join(save_dir, m + "_" + file_name))
             elif m == "coco":
-                coco_file = CocoFile.from_init(classes=classes)
+                coco_file = CocoFile.from_init(classes=via_file.class_names)
                 convert_format(via_file, coco_file)
                 coco_file.save(os.path.join(save_dir, m + "_" + file_name))
             else:
