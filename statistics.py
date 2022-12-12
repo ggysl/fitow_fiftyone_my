@@ -95,10 +95,14 @@ class Statistics():
             return np_value
 
     @statistics_api
-    def yolov5_eval(self, dataset: DatasetView, eval_dir: str, gt_field="ground_truth", pred_field="predictions", classes: dict=None):
+    def yolov5_eval(self, dataset: DatasetView, eval_dir: str, gt_field="ground_truth", pred_field="predictions", classes: list=None):
         _samples = dataset.select_fields([gt_field, pred_field])
-        classes = {name:i for (i, name) in enumerate(_samples.distinct(F(f"{gt_field}.detections.label")))} \
-            if classes == None else classes
+        if classes == None:
+            gt_classes = set(_samples.distinct(F(f"{gt_field}.detections.label")))
+            dt_classes = set(_samples.distinct(F(f"{pred_field}.detections.label")))
+            classes = {name:i for (i, name) in enumerate(gt_classes | dt_classes)}
+        else:
+            classes = {name:i for (i, name) in enumerate(classes)}
 
         yolov5_metrics = YoloV5Metircs(save_dir=eval_dir, class_names={v:k for (k, v) in classes.items()}, n_classes=len(classes))
         for sample in _samples.iter_samples(progress=True):

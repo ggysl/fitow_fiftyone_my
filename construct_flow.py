@@ -2,12 +2,19 @@ import os
 import re
 import time
 import datetime
-from pytz import timezone
 import sqlite3
+import numpy as np
+from pytz import timezone
+from shutil import copy
+
 import fiftyone as fo
 import fiftyone.core.odm as foo
 import fiftyone.core.utils as fou
+from fiftyone import DatasetView
+from fiftyone import ViewField as F
 foud = fou.lazy_import("fiftyone.utils.data")
+
+from .extends.ann_utils import ViaFile, CocoFile, convert_format
 
 def _format_sep(sentence):
     n_total = 100
@@ -123,7 +130,7 @@ class ConstructFlow(object):
         data_path, labels_path, dataset_dir="", label_field="ground_truth", label_types=["detections"],
         tags=["train"],
         key_field="filename", key_fcn=None,
-        skip_existing=False, insert_new=False, fields=None, omit_fields=None, merge_lists=True,
+        skip_existing=False, insert_new=False, fields=None, omit_fields=None, merge_lists=False,
         overwrite=True, expand_schema=True, add_info=True,
         **kwargs
     ):
@@ -335,3 +342,77 @@ class ConstructFlow(object):
             insert_one(sqlite3_conn, sqlite3_cursor, b)
         sqlite3_conn.commit()
         print("sqlite3转换完毕\n")
+
+    @flow_api
+    def to_annotation(self, dataset: DatasetView,
+        save_dir: str, file_name: str="ff_export.json",
+        classes: list=None,  mode="via", with_picture=True,
+        with_label=False, field="ground_truth",
+        overwrite=False, skip_failures=False, num_workers=8):
+        """
+        提取带标注或者不带标注的文件
+        mode可以为via或coco, 或它们相加
+        """
+
+        # 计算metadata
+        if with_label:
+            _samples = dataset.select_fields(["filepath", field])
+        else:
+            _samples = dataset.select_fields(["filepath"])
+
+        _samples.compute_metadata(overwrite=overwrite, skip_failures=skip_failures, num_workers=num_workers)
+
+        # 获取class
+        if classes == None:
+            try:
+                print(f"发现classes为None, 正在从{field}抽取classes,")
+                print(f"warning: 不建议使用这种方式, 可能会和预想产生差异!")
+                classes = list(set(_samples.distinct(F(f"{field}.detections.label"))))
+            except:
+                print(f"从{field}中抽取classes失败, 请检查或手动赋值")
+                return
+
+        # 都使用via模式, 其他模式再转换标签文件
+        via_file = ViaFile.from_init(classes=classes)
+        for sample in _samples.iter_samples(progress=True):
+            filepath, img_size, img_w, img_h = sample["filepath"], sample.metadata["size_bytes"], sample.metadata["width"], sample.metadata["height"]
+            if with_label:
+                np_bboxes = np.array([d["bounding_box"] for d in sample[field]["detections"]], dtype=np.float64)
+                np_bboxes[:, [0, 2]] *= img_w
+                np_bboxes[:, [1, 3]] *= img_h
+                bboxes = np_bboxes.tolist()
+
+                labels = [d["label"] for d in sample[field]["detections"]]
+
+                scores = [d["confidence"] for d in sample[field]["detections"]]
+                n_none = scores.count(None)
+                if scores.count(None) == len(scores):
+                    scores = None
+                elif n_none != 0:
+                    raise AssertionError("同一张图的标签score字段不统一!")
+            else:
+                bboxes = []
+                labels = []
+                scores = None
+
+            via_file.update_one(
+                img_name=os.path.basename(filepath),
+                img_size=img_size,
+                img_wh=(img_w, img_h),
+                bboxes=bboxes,
+                labels=labels,
+                scores=scores
+            )
+            if with_picture:
+                copy(filepath, os.path.join(save_dir, os.path.basename(filepath)))
+        
+        for m in mode.split("+"):
+            if m == "via":
+                via_file.save(os.path.join(save_dir, m + "_" + file_name))
+            elif m == "coco":
+                coco_file = CocoFile.from_init(classes=classes)
+                convert_format(via_file, coco_file)
+                coco_file.save(os.path.join(save_dir, m + "_" + file_name))
+            else:
+                print(f"目前只支持via与coco, 发现无法解析的格式: {m}")
+                continue
