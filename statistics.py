@@ -2,6 +2,7 @@ import numpy as np
 from fiftyone import ViewField as F
 from fiftyone import DatasetView, Dataset, Detections
 from fiftyone.utils.eval.coco import COCODetectionResults
+from fiftyone.utils.eval.coco_fitow import COCOFitowDetectionResults
 from fiftyone.core.session.session import Session
 from .extends.yolov5_s_api import Metrics as YoloV5Metircs
 
@@ -29,7 +30,7 @@ class Statistics():
         pass
 
     @statistics_api
-    def coco_eval(self, dataset: DatasetView, eval_key: str, session: Session, gt_field="ground_truth", pred_field="predictions", classes=None):
+    def coco_eval(self, dataset: DatasetView, eval_key: str, session: Session, gt_field="ground_truth", pred_field="predictions", iou=0.5, classes=None, iou_threshes=None):
         """
         fiftyone目前支持的总的coco指标, 及使用示例.
         其中的各个部分可以拆开
@@ -52,7 +53,8 @@ class Statistics():
                         eval_key=eval_key,
                         classes=classes,
                         method="coco",
-                        iou=0.5,
+                        iou=iou,
+                        iou_threshes=iou_threshes,
                         compute_mAP=True
                     )
 
@@ -69,6 +71,65 @@ class Statistics():
         # 绘制混淆矩阵并交互
         cm = eval_results.plot_confusion_matrix(classes=classes)
         cm.show()
+        session.plots.attach(cm)
+
+    @statistics_api
+    def fitow_eval(self, dataset: DatasetView, eval_key: str, session: Session, eval_mode="nv1", iou=0.5, gt_field="ground_truth", pred_field="predictions", columns_show=None):
+        """
+        fitow更实用的目标检测评估指标.
+        """
+        if not isinstance(dataset, (DatasetView, Dataset)):
+            raise ValueError("需选择正确的dataset或view!")
+
+        try:
+            eval_results: COCOFitowDetectionResults = dataset.load_evaluation_results(eval_key=eval_key)
+        except ValueError as e:
+            if "evaluation key" not in str(e):
+                raise e
+            else:
+                if not _user_choose(f"没有该{eval_key}, 是否开始创建?"):
+                    return
+                else:
+                    eval_results: COCODetectionResults = dataset.evaluate_detections(
+                        pred_field=pred_field,
+                        gt_field=gt_field,
+                        eval_key=eval_key,
+                        method="cocofitow",
+                        iou=iou,
+                        iou_threshs=[iou],
+                        eval_mode=eval_mode
+                    )
+
+        # 打印AP值
+        eval_results.print_report_fitow(digits=2, columns_show=columns_show)
+
+        # 绘制pr曲线
+        pr = eval_results.plot_pr_curves()
+        pr.show(width=1000, height=1000)
+
+        # 绘制混淆矩阵并交互
+        cm = eval_results.plot_confusion_matrix()
+
+        from plotly.graph_objs import graph_objs
+        annotations = []
+        font_color = "#000000"
+        for n, row in enumerate(cm._figure["data"][2]['z']):
+            for m, val in enumerate(row):
+                if val != 0:
+                    annotations.append(
+                        graph_objs.layout.Annotation(
+                            text=str(int(val)),
+                            x=m,
+                            y=n,
+                            xref="x1",
+                            yref="y1",
+                            font=dict(color=font_color),
+                            showarrow=False,
+                        )
+                    )
+        cm.update_layout(annotations=annotations)
+
+        cm.show(width=1000, height=1000)
         session.plots.attach(cm)
 
     def _fo_to_numpy(self, targets: Detections, classes, mode=5, dtype=np.float32):
