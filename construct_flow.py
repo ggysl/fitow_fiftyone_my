@@ -381,7 +381,7 @@ class ConstructFlow(object):
                 return
         for sample in _samples.iter_samples(progress=True):
             filepath, img_size, img_w, img_h = sample["filepath"], sample.metadata["size_bytes"], sample.metadata["width"], sample.metadata["height"]
-            if with_label:
+            if with_label and sample[field] is not None:
                 np_bboxes = np.array([d["bounding_box"] for d in sample[field]["detections"]], dtype=np.float64)
                 np_bboxes[:, [0, 2]] *= img_w
                 np_bboxes[:, [1, 3]] *= img_h

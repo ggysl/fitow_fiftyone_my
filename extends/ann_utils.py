@@ -181,7 +181,7 @@ class CocoFile():
 
             yield (
                 each_image["file_name"],
-                each_image["size"],
+                each_image.get("size", None),
                 (each_image["width"], each_image["height"]),
                 *bbox_infos
             )
@@ -338,7 +338,7 @@ class ViaFile():
             yield (
                 img_infos["filename"],
                 img_infos["size"],
-                (img_infos["width"], img_infos["height"]),
+                (img_infos.get("width", None), img_infos.get("height", None)),
                 [[r["shape_attributes"]["x"], r["shape_attributes"]["y"], r["shape_attributes"]["width"], r["shape_attributes"]["height"]] for r in img_infos["regions"]],
                 [r["region_attributes"][self.super_category] for r in img_infos["regions"]],
                 scores
