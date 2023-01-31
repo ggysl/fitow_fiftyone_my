@@ -77,7 +77,7 @@ class CocoFile():
             print("mode只能是reset或update!")
             return
 
-        if not isinstance(classes, (list, tuple, None)):
+        if not isinstance(classes, (list, tuple, type(None))):
             print("classes只能是list或tuple或None")
             return
         if classes is None:
