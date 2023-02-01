@@ -165,16 +165,19 @@ class CocoFile():
         for each_ann in self.coco_annotations:
             temp_list = image_ann_dict.get(each_ann["image_id"], [[], [], [], []])
             temp_list[0].append(each_ann["bbox"]) 
-            temp_list[1].append(each_ann["segmentation"][0])
+            if len(each_ann["segmentation"][0]) > 8 :
+                temp_list[1].append(each_ann["segmentation"][0])
+            else :
+                temp_list[1] = None
             temp_list[2].append(classes_dict[each_ann["category_id"]])
             if each_ann.get("score", None) is not None:
                 temp_list[3].append(each_ann["score"])
             image_ann_dict[each_ann["image_id"]] = temp_list
         for k in image_ann_dict:
-            l_score = len(image_ann_dict[k][2])
+            l_score = len(image_ann_dict[k][3])
             if l_score == 0:
-                image_ann_dict[k][2] = None
-            elif l_score != len(image_ann_dict[k][1]):
+                image_ann_dict[k][3] = None
+            elif l_score != len(image_ann_dict[k][2]):
                 raise AssertionError("同一张图的标签score字段不统一!")
 
         for each_image in self.coco_images:
