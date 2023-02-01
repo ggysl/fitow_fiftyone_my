@@ -8,6 +8,9 @@ to_convert: 转换成update_one相同的入口
 """
 
 import json
+import cv2
+import numpy as np
+import os
 
 def convert_format(SrcFile, TarFile):
     for per_image_info in SrcFile.to_convert():
@@ -110,7 +113,7 @@ class CocoFile():
     def class_names(self):
         return [d["name"] for d in sorted(self.coco_attrs, key=lambda x: x["id"])]
 
-    def update_one(self, img_name, img_size, img_wh, bboxes: list=[], labels: list=[], scores: list=None):
+    def update_one(self, img_name, img_size, img_wh, bboxes: list=[], segmentation: list=[], labels: list=[], scores: list=None):
         """
         bboxes: 接受xywh形式, 图片绝对大小
         """
@@ -139,7 +142,7 @@ class CocoFile():
                     round(y + h),
                     round(x),
                     round(y + h)
-                ]],
+                ]] if segmentation is None else segmentation,
                 "area": round(w*h),
                 "bbox": [round(x), round(y), round(w), round(h)],
                 "iscrowd": 0
@@ -160,11 +163,12 @@ class CocoFile():
 
         image_ann_dict = {}
         for each_ann in self.coco_annotations:
-            temp_list = image_ann_dict.get(each_ann["image_id"], [[], [], []])
-            temp_list[0].append(each_ann["bbox"])
-            temp_list[1].append(classes_dict[each_ann["category_id"]])
+            temp_list = image_ann_dict.get(each_ann["image_id"], [[], [], [], []])
+            temp_list[0].append(each_ann["bbox"]) 
+            temp_list[1].append(each_ann["segmentation"][0])
+            temp_list[2].append(classes_dict[each_ann["category_id"]])
             if each_ann.get("score", None) is not None:
-                temp_list[2].append(each_ann["score"])
+                temp_list[3].append(each_ann["score"])
             image_ann_dict[each_ann["image_id"]] = temp_list
         for k in image_ann_dict:
             l_score = len(image_ann_dict[k][2])
@@ -262,16 +266,27 @@ class ViaFile():
         return self
 
     @classmethod
-    def from_file(cls, via_path):
+    def from_file(cls, via_path, img_path, update = True):
         self = cls()
         with open(via_path, "r", encoding="utf-8") as fp:
             self.via_json = json.load(fp)
         self.super_category = list(self.via_json["_via_attributes"]["region"].keys())[0]
         self.via_attrs = self.via_json["_via_attributes"]["region"][self.super_category]["options"]
         self.via_imgs = self.via_json["_via_img_metadata"]
+        need_write = False
+        for img_key in self.via_imgs.keys() :
+            if not self.via_imgs[img_key].get('width', None) :
+                need_write = True
+                print('计算图像信息 : ' + os.path.join(img_path, self.via_imgs[img_key]['filename']))
+                img = cv2.imdecode(np.fromfile(os.path.join(img_path, self.via_imgs[img_key]['filename']), dtype=np.uint8),-1)
+                self.via_imgs[img_key]['height'], self.via_imgs[img_key]['width'], _ = img.shape  
+
+        if need_write and update :
+            with open(via_path, "w", encoding="utf-8") as fp:
+                json.dump(self.via_json, fp, ensure_ascii=False)
         return self
 
-    def update_one(self, img_name, img_size, img_wh, bboxes: list=[], labels: list=[], scores: list=None):
+    def update_one(self, img_name, img_size, img_wh, bboxes: list=[], segmentation: list=[], labels: list=[], scores: list=None):
         """
         bboxes: 接受xywh形式, 图片绝对大小
         """
@@ -294,6 +309,10 @@ class ViaFile():
                         "y": round(y),
                         "width": round(w),
                         "height": round(h)
+                    }if segmentation is None else {
+                        "name": "polygon",
+                        'all_points_x':segmentation[0][::2],
+                        'all_points_y':segmentation[0][1::2],                        
                     },
                     "region_attributes": {
                         self.super_category: labels[i]
@@ -334,15 +353,33 @@ class ViaFile():
                 scores = None
             elif n_none != 0:
                 raise AssertionError("同一张图的标签score字段不统一!")
+            if img_infos['regions'][0]['shape_attributes']['name'] == 'rect' :
+                yield (
+                    img_infos["filename"],
+                    img_infos["size"],
+                    (img_infos["width"], img_infos["height"]),
+                    [[r["shape_attributes"]["x"], r["shape_attributes"]["y"], r["shape_attributes"]["width"], r["shape_attributes"]["height"]] for r in img_infos["regions"]],
+                    None,
+                    [r["region_attributes"][self.super_category] for r in img_infos["regions"]],
+                    scores
+                ) 
+            elif img_infos['regions'][0]['shape_attributes']['name'] == 'polygon':
+                seg_list = []
+                for seg_lable in img_infos['regions'] :
+                    seg_list.append(np.insert(np.array(seg_lable['shape_attributes']['all_points_x']), range(0 + 1, len(seg_lable['shape_attributes']['all_points_x']) + 1), np.array(seg_lable['shape_attributes']['all_points_y'])).tolist())
 
-            yield (
-                img_infos["filename"],
-                img_infos["size"],
-                (img_infos.get("width", None), img_infos.get("height", None)),
-                [[r["shape_attributes"]["x"], r["shape_attributes"]["y"], r["shape_attributes"]["width"], r["shape_attributes"]["height"]] for r in img_infos["regions"]],
-                [r["region_attributes"][self.super_category] for r in img_infos["regions"]],
-                scores
-            ) 
+                yield (
+                    img_infos["filename"],
+                    img_infos["size"],
+                    (img_infos["width"], img_infos["height"]),
+                    [[min(r['shape_attributes']['all_points_x']), 
+                        min(r['shape_attributes']['all_points_y']), 
+                        max(r['shape_attributes']['all_points_x'])-min(r['shape_attributes']['all_points_x']), 
+                        max(r['shape_attributes']['all_points_y'])-min(r['shape_attributes']['all_points_y'])] for r in img_infos['regions']],
+                    seg_list,
+                    [r["region_attributes"][self.super_category] for r in img_infos["regions"]],
+                    scores
+                )             
 
     @property
     def class_names(self):
