@@ -10,6 +10,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fiftyone import DatasetView
 import numpy as np
+from multiprocessing import Process, Manager
+
+multi_manager = Manager()
 
 class FFRPCServer(FFRPC_pb2_grpc.FFRPCServicer):
     def __init__(self, dataset: DatasetView, *args, **kwargs):
@@ -69,8 +72,30 @@ class FFRPCServer(FFRPC_pb2_grpc.FFRPCServicer):
             if msg == "get_ids":
                 yield FFRPC_pb2.m_label_stream(ids=ds_view.count_values("id"))
             elif msg[:8] == "get_all:":
-                for each in self._labels_iter(ds_view, msg[8:]):
-                    yield each
+                m_l = multi_manager.list()
+                p = Process(target=p_run_iter, args=(ds_view, msg[8:], m_l))
+                p.start()
+                p.join()
+                for filepath, img_id, img_w, img_h, bboxes, labels in m_l:
+                    instances = [
+                        FFRPC_pb2.m_instance(
+                            ignore_flag=0,
+                            bbox=bbox,
+                            bbox_label=label,
+                            mask=[]
+                        ) for bbox, label in zip(bboxes, labels)
+                    ]
+                    
+                    yield FFRPC_pb2.m_label_stream(
+                        image_info= FFRPC_pb2.m_image_info(
+                            img_path=filepath,
+                            img_id=img_id,
+                            seg_map_path="",
+                            height=img_h,
+                            width=img_w,
+                            instances=instances)
+                    )
+                del m_l
                 yield FFRPC_pb2.m_label_stream(msg="get_all:EOF")
             elif msg == "get_length":
                 yield FFRPC_pb2.m_label_stream(len=len(ds_view))
@@ -99,7 +124,9 @@ class FFRPCServer(FFRPC_pb2_grpc.FFRPCServicer):
 async def serve_async_FFRPC(port: int, dataset: DatasetView):
     server = grpc.aio.server(ThreadPoolExecutor(128), options=[
         ('grpc.max_send_message_length', 2147483647),
-        ('grpc.max_receive_message_length', 2147483647)
+        ('grpc.max_receive_message_length', 2147483647),
+        ("grpc.so_reuseport", 1),
+        ("grpc.use_local_subchannel_pool", 1)
     ])
     FFRPC_pb2_grpc.add_FFRPCServicer_to_server(FFRPCServer(port=port, dataset=dataset), server)
     server.add_insecure_port(f"[::]:{port}")
@@ -108,3 +135,23 @@ async def serve_async_FFRPC(port: int, dataset: DatasetView):
 
 def run_FFRPC_server(port: int, dataset: DatasetView):
     asyncio.run(serve_async_FFRPC(port, dataset))
+
+def p_run_iter(ds, field, all_results):
+    _samples: DatasetView = ds.select_fields(["filepath", field])
+    _samples.compute_metadata(overwrite=False, skip_failures=True, num_workers=8)
+    img_id = 0
+    for sample in _samples.iter_samples(progress=True):
+        img_w = sample.metadata["width"]
+        img_h = sample.metadata["height"]
+        if sample[field] is not None:
+            np_bboxes = np.array([d["bounding_box"] for d in sample[field]["detections"]], dtype=np.float64)
+            np_bboxes[:, [0, 2]] *= img_w
+            np_bboxes[:, [1, 3]] *= img_h
+            bboxes = np_bboxes.tolist()
+            labels = [d["label"] for d in sample[field]["detections"]]
+        else:
+            bboxes = []
+            labels = []
+        all_results.append((sample["filepath"], img_id, img_w, img_h, bboxes, labels))
+        img_id += 1
+    return all_results
