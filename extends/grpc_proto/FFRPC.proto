@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package fitow;
+
+service FFRPC {
+    rpc GetIDs (m_say) returns (m_ids) {}
+    rpc GetLength(m_say) returns (m_length) {}
+    rpc GetDatasetInfos(m_say) returns (m_say) {}
+    rpc HeartBeat (stream m_say) returns (stream m_say) {}
+    rpc GetLabels (stream m_say) returns (stream m_label_stream) {}
+}
+
+message m_ids {
+    repeated string ids = 1;
+}
+
+message m_length {
+    uint64 len = 1;
+}
+
+message m_instance{
+    uint32 ignore_flag = 1;
+    repeated float bbox = 2;
+    string bbox_label = 3;
+    repeated m_mask mask = 4;
+}
+
+message m_bbox {
+    float xmin = 1;
+    float ymin = 2;
+    float xmax = 3;
+    float ymax = 4;
+}
+
+message m_mask {
+    repeated float points = 1;
+}
+
+message m_image_info {
+    string img_path = 1;
+    int32 img_id = 2;
+    string seg_map_path = 3;
+    int32 height = 4;
+    int32 width = 5;
+    repeated m_instance instances = 6;
+}
+
+message m_label_stream {
+    string msg = 1;
+    uint64 len = 2;
+    repeated string ids = 3;
+    m_image_info image_info  = 4;
+}
+
+message m_say {
+    string msg = 1;
+}

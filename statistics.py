@@ -5,6 +5,7 @@ from fiftyone.utils.eval.coco import COCODetectionResults
 from fiftyone.utils.eval.coco_fitow import COCOFitowDetectionResults
 from fiftyone.core.session.session import Session
 from .extends.yolov5_s_api import Metrics as YoloV5Metircs
+from .extends.grpc_proto.FFRPC import run_FFRPC_server
 
 def _format_sep(sentence):
     n_total = 100
@@ -182,3 +183,7 @@ class Statistics():
             raise ValueError("需选择正确的dataset或view!")
         else:
             dataset.delete_evaluation(eval_key=eval_key)
+
+    @statistics_api
+    def grpc_server(self, port, dataset: DatasetView):
+        run_FFRPC_server(port, dataset=dataset)
