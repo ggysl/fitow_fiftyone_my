@@ -8,8 +8,7 @@ to_convert: 转换成update_one相同的入口
 """
 
 import json
-import cv2
-import numpy as np
+import sys
 import os
 
 def convert_format(SrcFile, TarFile):
@@ -269,7 +268,7 @@ class ViaFile():
         return self
 
     @classmethod
-    def from_file(cls, via_path, img_path, update = True):
+    def from_file(cls, via_path, img_path = None, update = False):
         self = cls()
         with open(via_path, "r", encoding="utf-8") as fp:
             self.via_json = json.load(fp)
@@ -280,6 +279,10 @@ class ViaFile():
         for img_key in self.via_imgs.keys() :
             if not self.via_imgs[img_key].get('width', None) :
                 need_write = True
+                if 'cv2' not in sys.modules.keys() :
+                    import cv2
+                if 'numpy' in sys.modules.keys() :
+                    import numpy as np
                 print('计算图像信息 : ' + os.path.join(img_path, self.via_imgs[img_key]['filename']))
                 img = cv2.imdecode(np.fromfile(os.path.join(img_path, self.via_imgs[img_key]['filename']), dtype=np.uint8),-1)
                 self.via_imgs[img_key]['height'], self.via_imgs[img_key]['width'], _ = img.shape  
@@ -367,6 +370,7 @@ class ViaFile():
                     scores
                 ) 
             elif img_infos['regions'][0]['shape_attributes']['name'] == 'polygon':
+                import numpy as np
                 seg_list = []
                 for seg_lable in img_infos['regions'] :
                     seg_list.append(np.insert(np.array(seg_lable['shape_attributes']['all_points_x']), range(0 + 1, len(seg_lable['shape_attributes']['all_points_x']) + 1), np.array(seg_lable['shape_attributes']['all_points_y'])).tolist())
