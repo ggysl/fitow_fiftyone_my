@@ -281,9 +281,11 @@ class ViaFile():
                 if img_path is None :
                     raise RuntimeError('via中没有长宽数据，需提供图像路径img_path，将自动计算，计算后如需更新请将update置为True')
                 need_write = True
-                if 'cv2' not in sys.modules.keys() :
+                cv2 = sys.modules.get('cv2', None)
+                if cv2 is None:
                     import cv2
-                if 'numpy' in sys.modules.keys() :
+                np = sys.modules.get('numpy', None)
+                if np is None:
                     import numpy as np
                 print('计算图像信息 : ' + os.path.join(img_path, self.via_imgs[img_key]['filename']))
                 img = cv2.imdecode(np.fromfile(os.path.join(img_path, self.via_imgs[img_key]['filename']), dtype=np.uint8),-1)
