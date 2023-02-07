@@ -1,4 +1,4 @@
-"""
+    """
 统一的标注格式类库:
 
 接口形式统一: update_one以一张图片为主
@@ -278,6 +278,8 @@ class ViaFile():
         need_write = False
         for img_key in self.via_imgs.keys() :
             if not self.via_imgs[img_key].get('width', None) :
+                if img_path is None :
+                    raise RuntimeError('via中没有长宽数据，需提供图像路径img_path，将自动计算，计算后如需更新请将update置为True')
                 need_write = True
                 if 'cv2' not in sys.modules.keys() :
                     import cv2
